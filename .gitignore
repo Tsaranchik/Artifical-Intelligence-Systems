@@ -1,0 +1,6 @@
+.venv/
+ga_results/
+__pycache__/
+.vscode/
+.ipynb_checkpoints
+
