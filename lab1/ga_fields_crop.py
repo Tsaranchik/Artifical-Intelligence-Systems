@@ -1,13 +1,10 @@
 import numpy as np
 import random
-import itertools
-import time
 import os
 import math
-from collections import defaultdict
 import matplotlib.pyplot as plt
 import pandas as pd
-from typing import Optional, Any
+from typing import Optional, Callable
 
 
 SEED = 42
@@ -15,30 +12,34 @@ random.seed(SEED)
 np.random.seed(SEED)
 
 N = 8 # field size
+# crop name, yield per hectar in tons, cost per ton in dollars
 CROPS = [
-	("Wheat", 3.4, 120),
-	("Corn", 3.6, 160),
-	("Soy", 3.5, 140),
-	("Barley", 3.2, 110),
-	("Potato", 4.0, 310)
+	("Wheat", 3.21, 173.19),
+	("Corn", 6.05, 195.72),
+	("Soy", 3.16, 383.52),
+	("Barley", 3.10, 117.83),
+	("Grapes", 22.5, 600),
+	("Rice", 4.5, 450),
+	("Sugar beet", 30, 550), # nerfed (yield 50 -> 30)
+	("Potato", 21, 230),
+	("Cassava", 10, 200)
 ]
 k = len(CROPS)
 
-POP_SIZE = 120
-GENERATIONS = 100
+POP_SIZE = 20
+GENERATIONS = 50
 CROSSOVER_RATE = 0.9
 MUTATION_RATE = 0.1
-ELITISM = 2
 TOURNAMENT_SIZE = 3
-RUNS_PER_COMBO = 5
 
 RESULTS_DIR = "ga_results"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
-def generate_fields(N: int,
-		    crops: list[tuple[str, int, int]],
-		    seed: int = SEED
+def generate_fields(
+		N: int,
+		crops: list[tuple[str, int, int]],
+		seed: int = SEED
 ) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, list[str]]: 
 	random.seed(seed)
 	np.random.seed(seed)
@@ -64,9 +65,10 @@ def generate_fields(N: int,
 	return fields_df, yields_matrix, costs_matrix, crop_names
 
 
-def total_yield_and_cost(solution: np.ndarray,
-			 yields_matrix: np.ndarray,
-			 costs_matrix: np.ndarray
+def total_yield_and_cost(
+		solution: np.ndarray,
+		yields_matrix: np.ndarray,
+		costs_matrix: np.ndarray
 ) -> tuple[float, float]:
 	n = len(solution)
 	idx = (np.arange(n), solution)
@@ -76,8 +78,9 @@ def total_yield_and_cost(solution: np.ndarray,
 	return total_yield, total_cost
 
 
-def compute_theoretical_bounds(yields_matrix: np.ndarray,
-			       costs_matrix: np.ndarray
+def compute_theoretical_bounds(
+		yields_matrix: np.ndarray,
+		costs_matrix: np.ndarray
 ) -> tuple[float, float, float, float]:
 	min_yield = float(yields_matrix.min(axis=1).sum())
 	max_yield = float(yields_matrix.max(axis=1).sum())
@@ -95,60 +98,19 @@ def fitness_of_solution(
 		w: float = 0.5,
 		bounds: Optional[tuple[float, float, float, float]] = None
 ) -> float:
-	if mode not in ["ratio", "weighted"]:
-		raise ValueError("Unknown mode name")
-	
 	total_y, total_c = total_yield_and_cost(solution, yields_matrix, costs_matrix)
-	if mode == "ratio":
-		if total_c <= 0:
-			return -1e9
-		return total_y / total_c
-	else:
-		if bounds is None:
-			bounds = compute_theoretical_bounds(yields_matrix, costs_matrix)
-		min_y, max_y, min_c, max_c = bounds
-		if max_y - min_y == 0:
-			ny = 0.0
-		else:
-			ny = (total_y - min_y) / (max_y - min_y)
-		if max_c - min_c == 0:
-			nc = 0.0
-		else:
-			nc = (total_c - min_c) / (max_c - min_c)
-		
-		return ny - w * nc
-
-
-def brute_force_best(
-		N: int,
-		k: int,
-		yeilds_matrix: np.ndarray,
-		costs_matrix: np.ndarray,
-		mode: str = "weighted",
-		w: float = 0.5,
-		max_enumeration: int = 2000000
-) -> Optional[tuple[np.ndarray, float, tuple[float, float]]]:
-	total_space = k ** N
-	if total_space > max_enumeration:
-		print(f"[brute-force] space is too large: {total_space} > {max_enumeration} skip.")
-		return None
-	best = None
-	best_score = -1e18
-	bounds = compute_theoretical_bounds(yeilds_matrix, costs_matrix)
-	start = time.time()
-	for comb in itertools.product(range(k), repeat=N):
-		s = fitness_of_solution(np.array(comb), yeilds_matrix, costs_matrix, mode, w, bounds)
-		if s > best_score:
-			best_score = s
-			best = (np.array(comb), s, total_yield_and_cost(np.array(comb), yeilds_matrix, costs_matrix))
-	elapsed = time.time() - start
-	print(f"[brute-force] complete in {elapsed:.2f}s, cheked {total_space} combinations")
+	if bounds is None:
+		bounds = compute_theoretical_bounds(yields_matrix, costs_matrix)
+	min_y, max_y, min_c, max_c = bounds
+	ny = (total_y - min_y) / (max_y - min_y) if (max_y - min_y) > 0 else 0.5
+	nc = (total_c - min_c) / (max_c - min_c) if (max_c - min_c) > 0 else 0.5
 	
-	return best
+	return ny * math.exp(-w * nc)
 
 
-def one_point_crossover(parent1: np.ndarray,
-			parent2: np.ndarray
+def one_point_crossover(
+		parent1: np.ndarray,
+		parent2: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
 	n = len(parent1)
 	if n < 2:
@@ -160,8 +122,9 @@ def one_point_crossover(parent1: np.ndarray,
 	return child1, child2
 
 
-def two_point_crossover(parent1: np.ndarray,
-			parent2: np.ndarray
+def two_point_crossover(
+		parent1: np.ndarray,
+		parent2: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
 	n = len(parent1)
 	if n < 3:
@@ -175,9 +138,10 @@ def two_point_crossover(parent1: np.ndarray,
 	return child1, child2
 
 
-def uniform_crossover(parent1: np.ndarray,
-		      parent2: np.ndarray,
-		      p: float = 0.5
+def uniform_crossover(
+		parent1: np.ndarray,
+		parent2: np.ndarray,
+		p: float = 0.5
 ) -> tuple[np.ndarray, np.ndarray]:
 	n = len(parent1)
 	mask = np.random.rand(n) < p
@@ -187,9 +151,10 @@ def uniform_crossover(parent1: np.ndarray,
 	return child1, child2
 
 
-def random_reset_mutation(child: list[int],
-			  k: int,
-			  mutation_rate: float
+def random_reset_mutation(
+		child: list[int],
+		k: int,
+		mutation_rate: float
 ) -> list[int]:
 	for i in range(len(child)):
 		if random.random() < mutation_rate:
@@ -201,9 +166,10 @@ def random_reset_mutation(child: list[int],
 	return child
 
 
-def swap_mutation(child: list[int],
-		  k: int,
-		  mutation_rate: float
+def swap_mutation(
+		child: list[int],
+		k: int,
+		mutation_rate: float
 ) -> list[int]:
 	if random.random() < mutation_rate and len(child) >= 2:
 		i, j = random.sample(range(len(child)), 2)
@@ -212,9 +178,10 @@ def swap_mutation(child: list[int],
 	return child
 
 
-def scramble_mutation(child: list[int],
-		      k: int,
-		      mutation_rate: float
+def scramble_mutation(
+		child: list[int],
+		k: int,
+		mutation_rate: float
 ) -> list[int]:
 	n = len(child)
 	if random.random() < mutation_rate and n >= 3:
@@ -227,9 +194,10 @@ def scramble_mutation(child: list[int],
 	return child
 
 
-def tournament_selection(pop: list[np.ndarray],
-			 fintesses: list[float],
-			 tournament_size: int
+def tournament_selection(
+		pop: list[np.ndarray],
+		fintesses: list[float],
+		tournament_size: int
 ) -> np.ndarray:
 	i_idxs = np.random.randint(0, len(pop), size=tournament_size)
 	best_idx = i_idxs[0]
@@ -242,189 +210,177 @@ def tournament_selection(pop: list[np.ndarray],
 	return pop[best_idx].copy()
 
 
-def run_ga(
-	   yields_matrix: np.ndarray,
-	   costs_matrix: np.ndarray,
-	   population_size: int = POP_SIZE,
-	   generations: int = GENERATIONS,
-	   crossover_name: str = "one_point",
-	   mutation_name: str = "random_reset",
-	   crossover_rate: float = CROSSOVER_RATE,
-	   mutation_rate: float = MUTATION_RATE,
-	   elitism: int = ELITISM,
-	   tournament_size: int = TOURNAMENT_SIZE,
-	   mode: str = "weighted",
-	   w: float = 0.5
-) -> dict[str, Any]:
-	N = yields_matrix.shape[0]
-	k = yields_matrix.shape[1]
-	bounds = compute_theoretical_bounds(yields_matrix, costs_matrix)
-
-	crossovers = {
-		"one_point": one_point_crossover,
-		"two_point": two_point_crossover,
-		"uniform": uniform_crossover
-	}
-	mutations = {
-		"random_reset": random_reset_mutation,
-		"swap": swap_mutation,
-		"scramble": scramble_mutation
-	}
-	# if crossover_name not in list(crossovers.keys()) or mutation_rate not in list(mutations.keys()):
-	# 	print(type(crossover_name), list(crossovers.keys())[0])
-	# 	raise ValueError("Unknown operator name")
+class Individual:
+	def __init__(
+			self,
+			genome: np.ndarray,
+			yields_matrix: np.ndarray,
+			costs_matrix: np.ndarray
+	) -> None:
+		self.genome = genome
+		self.yield_val, self.cost_val = total_yield_and_cost(
+			genome,
+			yields_matrix,
+			costs_matrix
+		)
+		self.fitness = fitness_of_solution(genome, yields_matrix, costs_matrix)
 	
-	crossover_fn = crossovers[crossover_name]
-	mutation_fn = mutations[mutation_name]
+	def __repr__(self):
+		return f"Individual(Y={self.yield_val:.2f}, C={self.cost_val:.2f}, F={self.fitness:.4f})"
 
-	pop = np.random.randint(0, k, size=(population_size, N))
-	fitnesses = np.array([fitness_of_solution(ind, yields_matrix, costs_matrix, mode=mode, w=w, bounds=bounds) for ind in pop])
-	best_history = []
-	best_sol = None
-	best_fit = -1e18
+
+def create_random_individual(
+		yields_matrix: np.ndarray,
+		costs_matrix: np.ndarray
+) -> Individual:
+	genome = np.random.randint(0, k, size=N)
+	return Individual(genome, yields_matrix, costs_matrix)
+
+
+def create_initial_pop(
+		pop_size: int,
+		yields_matrix: np.ndarray,
+		costs_matrix: np.ndarray
+) -> list[Individual]:
+	return [create_random_individual(yields_matrix, costs_matrix) for _ in range(pop_size)]
+
+
+def evolve_pop(
+		pop: list[Individual],
+		yields_matrix: np.ndarray,
+		costs_matrix: np.ndarray,
+		crossover_fn: Callable,
+		mutation_fn: Callable,
+		crossover_rate: float = CROSSOVER_RATE,
+		mutation_rate: float = MUTATION_RATE
+) -> list[Individual]:
+	fitnesses = [ind.fitness for ind in pop]
+	genomes = [ind.genome for ind in pop]
+	new_pop = []
+	
+	best_individual = pop[np.argmax(fitnesses)]
+	new_pop.append(best_individual)
+
+	while len(new_pop) < POP_SIZE:
+		parent1 = tournament_selection(genomes, fitnesses, TOURNAMENT_SIZE)
+		parent2 = tournament_selection(genomes, fitnesses, TOURNAMENT_SIZE)
+		if random.random() < crossover_rate:
+			child1, child2 = crossover_fn(parent1, parent2)
+		else:
+			child1, child2 = parent1.copy(), parent2.copy()
+		
+		child1 = mutation_fn(child1.tolist(), k, mutation_rate)
+		child2 = mutation_fn(child2.tolist(), k, mutation_rate)
+
+		new_pop.append(Individual(np.array(child1), yields_matrix, costs_matrix))
+		if len(new_pop) < POP_SIZE:
+			new_pop.append(Individual(np.array(child2), yields_matrix, costs_matrix))
+
+	return new_pop[:POP_SIZE]
+
+
+def run_experiment(
+		crossover_name: str,
+		crossover_fn: Callable,
+		mutation_name: str,
+		mutation_fn: Callable,
+		yileds_matrix: np.ndarray,
+		costs_matrix: np.ndarray,
+		generations: int = GENERATIONS
+) -> tuple[list[float], Individual]:
+	pop = create_initial_pop(POP_SIZE, yileds_matrix, costs_matrix)
+	best_fitness_history = []
 
 	for gen in range(generations):
-		elite_idx = np.argsort(-fitnesses)[:elitism]
-		elites = pop[elite_idx].copy()
+		pop = evolve_pop(pop, yileds_matrix, costs_matrix, crossover_fn, mutation_fn)
+		best_fitness = max(ind.fitness for ind in pop)
+		best_fitness_history.append(best_fitness)
 
-		new_pop = elites.tolist()
-
-		while len(new_pop) < population_size:
-			parent1 = tournament_selection(pop, fitnesses, tournament_size)
-			parent2 = tournament_selection(pop, fitnesses, tournament_size)
-
-			if random.random() < crossover_rate:
-				child1, child2 = crossover_fn(parent1, parent2)
-			else:
-				child1, child2 = parent1.copy(), parent2.copy()
-			
-			child1 = mutation_fn(child1, k, mutation_rate)
-			child2 = mutation_fn(child2, k, mutation_rate)
-			new_pop.append(child1)
-			if len(new_pop) < population_size:
-				new_pop.append(child2)
-			pop = np.array(new_pop)
-			fitnesses = np.array([fitness_of_solution(ind, yields_matrix, costs_matrix, mode=mode, w=w, bounds=bounds) for ind in pop])
-			gen_best_idx = np.argmax(fitnesses)
-			gen_best_fit = float(fitnesses[gen_best_idx])
-			gen_best_sol = pop[gen_best_idx].copy()
-			best_history.append(gen_best_fit)
-			if gen_best_fit > best_fit:
-				best_fit = gen_best_fit
-				best_sol = gen_best_sol.copy()
-			
-	total_y, total_c = total_yield_and_cost(best_sol, yields_matrix, costs_matrix)
+		if gen % 20 == 0:
+			best_individual = max(pop, key=lambda ind: ind.fitness)
+			print(f"Generation {gen}: {best_individual}")
 	
-	return {
-		"best_solution": best_sol,
-		"best_fitness": best_fit,
-		"best_total_yield": total_y,
-		"best_total_cost": total_c,
-		"history": best_history
+	best_individual = max(pop, key=lambda ind: ind.fitness)
+	return best_fitness_history, best_individual
+
+
+def main_experiment():
+	fields_df, yields_matrix, costs_matrix, crop_names = generate_fields(N, CROPS)
+
+	print(
+		f"Fields param:\n {fields_df}\n"
+		f"\nYields matrix (fields x crops):\n {yields_matrix}\n"
+		f"\nCosts matrix (fields x crops):\n {costs_matrix}"
+	)
+
+	crossovers = {
+		"One-point": one_point_crossover,
+		"Two-point": two_point_crossover,
+		"Uniform": uniform_crossover
+	}
+	mutations = {
+		"Random Reset": random_reset_mutation,
+		"Swap": swap_mutation,
+		"Scramble": scramble_mutation
 	}
 
-
-def run_experiments(
-		fields_df,
-		yields_matrix,
-		costs_matrix,
-		crop_names,
-		crossovers_list = ["one_point", "two_point", "uniform"],
-		mutation_list = ["random_reset", "swap", "scramble"],
-		runs = RUNS_PER_COMBO,
-		population_size = POP_SIZE,
-		generations = GENERATIONS,
-		mode = "weighted",
-		w = 0.5
-):
-	combos = []
+	plt.figure(figsize=(12, 8))
 	results = {}
-	i = 1
-	for co in crossovers_list:
-		for mu in mutation_list:
-			combos.append((co, mu))
-	for co, mu in combos:
-		all_hist = []
-		all_best_vals = []
-		start = time.time()
-		for r in range(runs):
-			res = run_ga(
-				yields_matrix, costs_matrix,
-				population_size=population_size,
-				generations=generations,
-				crossover_name=co,
-				mutation_name=mu,
-			)
-			all_hist.append(res["history"])
-			all_best_vals.append(res["best_fitness"])
-		elapsed = time.time() - start
-		print(f"[exp] {co} + {mu}: runs={runs}, time={elapsed:.1f}s, mean final fitness={np.mean(all_best_vals):.4f}")
-		results[(co,mu)] = {
-			"histories": np.array(all_hist),
-			"finals": np.array(all_best_vals)
-		}
-
-		plt.figure(figsize=(10,6))
-		for (co, mu), val in results.items():
-			mean_hist = val["histories"].mean(axis=0)
-			plt.plot(mean_hist, label=f"{co}+{mu}")
-		plt.xlabel("Generation")
-		plt.ylabel("Best fitness (mean over runs)")
-		plt.title("GA convergence: crossover + mutation combinations")
-		plt.legend()
-		plt.grid(True)
-		plt.tight_layout()
-		png = os.path.join(RESULTS_DIR, "convergence_combos.png")
-		plt.savefig(png)
-		print(f"[plot] saved {png}")
-		plt.close()
-
-		labels = []
-		data = []
-		for (co, mu), val in results.items():
-			labels.append(f"{co}\n{mu}")
-			data.append(val["finals"])
-		plt.figure(figsize=(12,6))
-		plt.boxplot(data, labels=labels, showmeans=True)
-		plt.xticks(rotation=45, ha="right")
-		plt.ylabel("Final best fitness")
-		plt.title("Final fitness distribution by operator combo")
-		plt.tight_layout()
-		png2 = os.path.join(RESULTS_DIR, "boxplot_finals.png")
-		plt.savefig(png2)
-		print(f"[plot] saved {png2}")
-		plt.close()
-
-	return results
-
-
-def main():
-	print("Generate data...")
-	fields_df, yields_matrix, costs_matrix, crop_names = generate_fields(N, CROPS)
-	print(fields_df)
-	print("Matrix expected yield (N x k):")
-	print(np.round(yields_matrix, 2))
-	print("Costs matrix (N x k):")
-	print(np.round(costs_matrix, 2))
-
-	bf = brute_force_best(
-		N, k,
-		yields_matrix, costs_matrix,
-		mode="weighted", w=0.5,
-		max_enumeration=500000
-	)
-	if bf is not None:
-		sol, score, (ty, tc) = bf
-		print("[brute] best score", score, "yield", ty, "cost", tc, "solution", sol)
 	
-	print("GA (combinations) experiments start...")
-	results = run_experiments(
-		fields_df, yields_matrix, costs_matrix, crop_names,
-	)
-	print("Experiments ended. Results in dir: ", RESULTS_DIR)
-	print(results)
+	for crossover_name, crossover_fn in crossovers.items():
+		for mutation_name, mutation_fn in mutations.items():
+			combo_name = f"{crossover_name} + {mutation_name}"
+			print(f"\n--- Starting experiment: {combo_name} ---")
+
+			fitnesses_history, best_individual = run_experiment(
+				crossover_name, crossover_fn, mutation_name, mutation_fn,
+				yields_matrix, costs_matrix
+			)
+
+			results[combo_name] = {
+				"fitness_history": fitnesses_history,
+				"best_individual": best_individual
+			}
+
+			plt.plot(fitnesses_history, label=combo_name)
+
+			print(f"Best result: {best_individual}")
+			print(f"Crops distribution: {best_individual.genome}")
+
+	plt.title("Comparison of combinations of crossover and mutation operators")
+	plt.xlabel("Generation")
+	plt.ylabel("Best fitness")
+	plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+	plt.grid(True, alpha=0.3)
+	plt.tight_layout()
+
+	plt.savefig(os.path.join(RESULTS_DIR, "crossover_mutation_comparison.png"), dpi=300, bbox_inches="tight")
+	plt.show()
+
+	results_df = pd.DataFrame({
+		"Combination": list(results.keys()),
+		"Best fitness": [results[combo]["best_individual"].fitness for combo in results],
+		"Yield": [results[combo]["best_individual"].yield_val for combo in results],
+		"Cost": [results[combo]["best_individual"].cost_val for combo in results]
+	}).sort_values("Best fitness", ascending=False)
+
+	results_df.to_csv(os.path.join(RESULTS_DIR, "experiment_results.csv"), index=False)
+
+	print("\n" + "="*60)
+	print("THE RESULTS OF THE EXPERIMENT:")
+	print("="*60)
+	print(results_df.to_string(index=False))
+
+	plt.figure(figsize=(10, 6))
+	y_pos = np.arange(len(results_df))
+	plt.barh(y_pos, results_df["Best fitness"])
+	plt.yticks(y_pos, results_df["Combination"])
+	plt.xlabel("Best fitness")
+	plt.title("Comparison of the final results by combinations of operators")
+	plt.tight_layout()
+	plt.savefig(os.path.join(RESULTS_DIR, "final_results_comparison.png"), dpi=300)
+	plt.show()
 
 
 if __name__ == "__main__":
-	main()
-	
+	main_experiment()
