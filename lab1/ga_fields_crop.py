@@ -295,10 +295,6 @@ def run_experiment(
 		pop = evolve_pop(pop, yileds_matrix, costs_matrix, crossover_fn, mutation_fn)
 		best_fitness = max(ind.fitness for ind in pop)
 		best_fitness_history.append(best_fitness)
-
-		if gen % 20 == 0:
-			best_individual = max(pop, key=lambda ind: ind.fitness)
-			print(f"Generation {gen}: {best_individual}")
 	
 	best_individual = max(pop, key=lambda ind: ind.fitness)
 	return best_fitness_history, best_individual
@@ -361,7 +357,8 @@ def main_experiment():
 		"Combination": list(results.keys()),
 		"Best fitness": [results[combo]["best_individual"].fitness for combo in results],
 		"Yield": [results[combo]["best_individual"].yield_val for combo in results],
-		"Cost": [results[combo]["best_individual"].cost_val for combo in results]
+		"Cost": [results[combo]["best_individual"].cost_val for combo in results],
+		"Genome": [results[combo]["best_individual"].genome for combo in results]
 	}).sort_values("Best fitness", ascending=False)
 
 	results_df.to_csv(os.path.join(RESULTS_DIR, "experiment_results.csv"), index=False)
