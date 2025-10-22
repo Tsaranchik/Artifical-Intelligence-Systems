@@ -104,7 +104,6 @@ def main() -> None:
 		except ValueError:
 			print("Неверный ввод. Введите числа от 0 до 100.")
 
-
 	result = implication(pollution_value, noise_value, polltion_mfs, noise_mfs, eco_mfs)
 	
 	eco_value = fuzz.defuzz(x, result, 'centroid')
