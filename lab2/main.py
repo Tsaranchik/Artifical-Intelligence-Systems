@@ -5,25 +5,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 
-pollution = np.arange(0, 101, 1)
-noise = np.arange(0, 101, 1)
-eco_risk = np.arange(0, 101, 1)
-
-# pollution_low = fuzz.trapmf(pollution, [0, 0, 15, 35])
-# pollution_medium = fuzz.trapmf(pollution, [25, 40, 55, 70])
-# pollution_high = fuzz.trapmf(pollution, [60, 75, 85, 95])
-# pollution_very_high = fuzz.trapmf(pollution, [85, 90, 100, 100])
-
-# noise_low = fuzz.trapmf(pollution, [0, 0, 15, 35])
-# noise_medium = fuzz.trapmf(pollution, [25, 40, 55, 70])
-# noise_high = fuzz.trapmf(pollution, [60, 75, 85, 95])
-# noise_very_high = fuzz.trapmf(pollution, [85, 90, 100, 100])
-
-# eco_low = fuzz.trapmf(pollution, [0, 0, 15, 35])
-# eco_medium = fuzz.trapmf(pollution, [25, 40, 55, 70])
-# eco_high = fuzz.trapmf(pollution, [60, 75, 85, 95])
-# eco_very_high = fuzz.trapmf(pollution, [85, 90, 100, 100])
-
 def create_mfs(x: np.ndarray, name: str) -> dict[str, np.ndarray]:
 	mfs = {}
 	for level in ["low", "medium", "high", "very_high"]:
