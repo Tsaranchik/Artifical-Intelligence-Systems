@@ -64,8 +64,6 @@ def implication(
 		('very_high', 'very_high'): 'very_high',
 	}
 
-	x_eco = np.arange(0, 101)
-
 	for (p_lvl, n_lvl), eco_lvl in rules.items():
 		mu_rule = np.fmin(mu_pollution[p_lvl], mu_noise[n_lvl])
 		eco_activations.append(np.fmin(mu_rule, eco_mfs[eco_lvl]))
