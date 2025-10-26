@@ -29,7 +29,6 @@ def run_visual_simulation(frames=240, interval=600, num_robots=4):
 	order_scatter = ax.scatter([], [], s=100, marker='x')
 	legend_text = ax.text(0.02, 0.98, "", transform=ax.transAxes, verticalalignment='top')
 
-
 	def init():
 		robot_scatter.set_offsets(np.empty((0, 2)))
 		order_scatter.set_offsets(np.empty((0, 2)))

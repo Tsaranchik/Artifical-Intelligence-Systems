@@ -11,10 +11,14 @@ def choose_robot_for_order(
 		control_system
 ) -> Optional[tuple[Robot, float, dict]]:
 	candidates = []
+
+	if order.delivered:
+		return None
+
 	shelf_pos = next(s['pos'] for s in ontology['shelves'] if s['id'] == order.from_shelf)
 
 	for r in robots:
-		if r.status == "charging":
+		if r.status == "charging" or (r.task is not None and r.task.get("order_id" != order.id)):
 			continue
 	
 		dist = r.distance_to(shelf_pos)

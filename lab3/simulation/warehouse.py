@@ -64,7 +64,44 @@ class WarehouseSimulator:
 		for r in self.robots:
 			if r.task is not None:
 				self.process_robot_task(r)
-			else:
+		
+		free_robots = [r for r in self.robots if r.task is None and r.status != "charging"]
+		pending_orders = [o for o in self.orders if not o.picked and not o.delivered]
+
+		if free_robots and pending_orders:
+			for robot in free_robots:
+				best_assigmnet = None
+				best_score = 0
+
+				for order in pending_orders:
+					order_assigned = any(
+						r.task and r.task.get("order_id") == order.id
+						for r in self.robots
+					)
+					if order_assigned:
+						continue
+
+					assigment = choose_robot_for_order([robot], order, self.ontology, self.fuzzy_system)
+					if assigment:
+						_, score, details = assigment
+						if score > best_score and score > config.MIN_ASSIGNMENT_SCORE:
+							best_score = score
+							best_assigmnet = (order, score, details)
+				
+				if best_assigmnet:
+					order, score, details = best_assigmnet
+					robot.task = {
+						"order_id": order.id,
+						"stage": "to_shelf",
+						"shelf": order.from_shelf,
+						"to_pos": order.to_pos
+					}
+					robot.status = "moving"
+					print(f"[Step {self.step}] Assigned Robot {robot.id} to Order {order.id} (score={score:.2f})")
+					self.log.append((self.step, robot.id, order.id, score))
+		
+		for r in self.robots:
+			if r.task is None:
 				if r.battery < config.BATTERY_CRITICAL:
 					r.task = {"order_id": None, "stage": "to_charge"}
 					r.status = "moving"
@@ -72,24 +109,67 @@ class WarehouseSimulator:
 				else:
 					r.status = "idle"
 					r.step_battery_use()
-		pending_orders = [o for o in self.orders if not o.picked and not o.delivered]
+	
+	def process_robot_task(self, r: Robot) -> None:
+		if r.task.get("stage") == "to_charge":
+			target = self.ontology["charging_station"]["pos"]
+			if r.distance_to(target) > config.THRESHOLD_DISTANCE:
+				r.move_towards(target)
+				r.status = "moving"
+			else:
+				r.status = "charging"
+				r.battery = min(100, r.battery + config.BATTERY_CHARGE_RATE)
+				if r.battery >= 100:
+					r.battery = 100
+					r.task = None
+					r.status = "idle"
+					print(f"[Step {self.step}] Robot {r.id} fully charged and ready")
+			return
+	
+		order = next((o for o in self.orders if o.id == r.task["order_id"]), None)
+		if order is None:
+			r.task = None
+			r.status = "idle"
+			r.step_battery_use()
+			print(f"[Step {self.step}] WARNING: Order not found for Robot {r.id}, freeing robot")
+			return
+
+		if order.delivered:
+			r.task = None
+			r.status = "idle"
+			r.step_battery_use()
+			print(f"[Step {self.step}] Order {order.id} already delivered, freeing Robot {r.id}")
+
+		if r.task.get("stage") == "to_shelf":
+			shelf_pos = next(s["pos"] for s in self.ontology["shelves"] if s["id"] == r.task["shelf"])
+			if r.distance_to(shelf_pos) > config.THRESHOLD_DISTANCE:
+				r.move_towards(shelf_pos)
+				r.status = "moving"
+			else:
+				if not order.picked:
+					order.picked = True
+					r.task["stage"] = "to_dropoff"
+					r.status = "busy"
+					print(f"[Step {self.step}] Robot {r.id} picked order {order.id} at {r.pos}")
+				else:
+					r.task["stage"] = "to_dropoff"
+					r.status = "moving"
 		
-		if pending_orders:
-			free_robots = [r for r in self.robots if r.task is None and r.status != "charging"]
+		elif r.task.get("stage") == "to_dropoff":
+			if r.distance_to(order.to_pos) > config.THRESHOLD_DISTANCE:
+				r.move_towards(order.to_pos)
+				r.status = "moving"
+			else:
+				order.delivered = True
+				r.task = None
+				r.status = "idle"
+				print(f"[Step {self.step}] Robot {r.id} delivered order {order.id} to {order.to_pos}")
+		
+		r.step_battery_use()
 
-			for robot in free_robots:
-				best_assignment = None
-				best_score = 0
-
-				for order in pending_orders:
-					order_already_assigned = any(
-						r.task and r.task.get("order_id") == order.id
-						for r in self.robots if r != robot
-					)
-					if order_already_assigned:
-						continue
-
-					assignment = choose_robot_for_order([robot], order, self.ontology, self.fuzzy_system)
+		if r.battery < config.BATTERY_LOW and r.task is None:
+			r.task = {"order_id": None, "stage": "to_charge"}
+					
 					
 		
 
